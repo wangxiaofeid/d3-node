@@ -5,26 +5,6 @@ var d3 = require("d3");
 var _ = require('lodash');
 var fs = require('fs');
 
-
-// 颜色集合
-var fill = (function() {
-    var colors = [
-        '#83DCEC',
-        '#A4BDAC',
-        '#D58173',
-        '#6493A8',
-        '#F5BD5F',
-        '#036776',
-        '#A7D2C7',
-        '#CBE474',
-        '#DBDA63',
-        '#AE9A93'
-    ];
-    return function(index) {
-        return colors[index % colors.length];
-    }
-})();
-
 // 力导图
 function Force(options) {
     return d3.layout.force()
@@ -127,7 +107,8 @@ function renderAssociations(data) {
                     resolve({
                         id: data.groupId,
                         nodes: nodes,
-                        links: links
+                        links: links,
+                        coreSelfNodes: coreSelfNodes
                     });
                 }
             }).start();
@@ -151,20 +132,19 @@ function renderAssociations(data) {
                 links: links,
                 size: [900, 900],
                 charge: -500,
-                start: function() {
-                    
+                start: function() {     
                 },
                 tick: function(e) {
                     nodes.forEach(cluster(subGroups.length / 2 * e.alpha));
                     nodes.forEach(collipe(.5, nodes, (nodes.length > 1000 ? 1 : 10)));
-                   
                 },
                 end: function() {
-                   
                     resolve({
                         id: data.groupId,
                         nodes: nodes,
-                        links: links
+                        links: links,
+                        coreSelfNodes: coreSelfNodes,
+                        haveSubGroups: true
                     }); 
                 }
             });
@@ -194,35 +174,32 @@ function fun(callback){
         promises.push(renderAssociations(context.features[i]));
     }
     Promise.all(promises).then(function(values) {
-        values.forEach(function(obj){
-            var minX = _.max(obj.nodes, function(chr) {
-              return chr.x;
-            });
-            var minY = _.max(obj.nodes, function(chr) {
-              return chr.y;
-            });
-            var maxX = _.max(obj.nodes, function(chr) {
-              return chr.x;
-            });
-            var maxY = _.max(obj.nodes, function(chr) {
-              return chr.y;
-            });
-            obj.width  = maxX - minX + 150;
-            obj.height = maxY - minXY + 150;
+        
+        _.each(values, function(obj){
+            var minX = _.minBy(obj.nodes, 'x').x - 100;
+            var minY = _.minBy(obj.nodes, 'y').y - 100;
+            var maxX = _.maxBy(obj.nodes, 'x').x - minX + 100;
+            var maxY = _.maxBy(obj.nodes, 'y').y - minY + 100;
+console.log(minX,minY,maxX,maxY);
+            
+            obj.width = maxX;
+            obj.height = maxY;
 
-            var changeX = (obj.width - 900)/2;
-            var changeY = (obj.height - 900)/2;
+            _.each(obj.nodes, function(node){
+                node.x -= minX;
+                node.y -= minY;
+            });
 
-            obj.nodes.forEach(function(node){
-                node.x += changeX;
-                node.y += changeY;
-            });
-            obj.links.forEach(function(link){
-                link.source.x += changeX;
-                link.source.y += changeY;
-                link.target.x += changeX;
-                link.target.y += changeY;
-            });
+            obj.groups = _(d3.nest().key(function(d) { return d.subGroupId; }).entries(obj.nodes))
+                                .map(function(group) {
+                                    var maxDNode = _.maxBy(group.values, 'degree');
+                                    var circle = getMinCircle(group);
+                                    group.center = circle.center;
+                                    group.radius = circle.radius + Math.min(maxDNode.degree, 30) + 2;
+                                    return group;
+                                }).value();
+
+            
         });
         callback(values);
     })
